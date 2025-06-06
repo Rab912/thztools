@@ -58,9 +58,9 @@ import numpy as np
 import scipy.linalg as la
 import scipy.optimize as opt
 from numpy import pi
-from numpy.fft import irfft, rfft, rfftfreq
 from numpy.random import default_rng
 from scipy import signal
+from scipy.fft import irfft, rfft, rfftfreq
 from scipy.linalg import sqrtm
 from scipy.optimize import OptimizeResult, approx_fprime, minimize
 
@@ -92,9 +92,14 @@ class GlobalOptions:
         Global sampling time, normally in picoseconds. When set to None, the
         default, times and frequencies are treated as dimensionless quantities
         that are scaled by the (undetermined) sampling time.
+    workers : int, optional
+        Maximum number of workers to use for parallel computation of FFTs. When
+        negative, this number wraps around from ```os.cpu_count()```. This is
+        set to -1 by default.
     """
 
     sampling_time: float | None = None
+    workers: int = -1
 
 
 #: Instance of ``GlobalOptions`` that stores global options.
@@ -811,9 +816,9 @@ def apply_frf(
     w_scaled = 2 * pi * rfftfreq(n)
     h = frfun(w_scaled / dt, *args)
     if numpy_sign_convention:
-        y = np.fft.irfft(np.fft.rfft(x) * h, n=n)
+        y = irfft(rfft(x) * h, n=n)
     else:
-        y = np.fft.irfft(np.fft.rfft(x) * np.conj(h), n=n)
+        y = irfft(rfft(x) * np.conj(h), n=n)
 
     return y
 
@@ -1098,8 +1103,8 @@ def scaleshift(
     w = 2 * pi * f_scaled / dt
     phase = np.expand_dims(eta, axis=eta.ndim) * w
 
-    x_adjusted = np.fft.irfft(
-        np.fft.rfft(x) * np.exp(-1j * phase), n=n
+    x_adjusted = irfft(
+        rfft(x) * np.exp(-1j * phase), n=n
     ) * np.expand_dims(a, axis=a.ndim)
 
     if x.ndim > 1 and axis != -1:
@@ -2298,9 +2303,9 @@ def _parse_noisefit_input(
     # estimate all noise parameters with a linear least-squares fit
     # to the time-dependent variance
     if None in [sigma_alpha0, sigma_beta0, sigma_tau0]:
-        mu0_f = np.fft.rfft(mu0)
-        w = 2 * pi * np.fft.rfftfreq(n, dt)
-        dmu0_dt = np.fft.irfft(1j * w * mu0_f, n=n)
+        mu0_f = rfft(mu0, workers=get_option("workers"))
+        w = 2 * pi * rfftfreq(n, dt)
+        dmu0_dt = irfft(1j * w * mu0_f, n=n, workers=get_option("workers"))
         a_matrix = np.stack([np.ones(n), mu0**2, dmu0_dt**2], axis=1)
         sol = np.linalg.lstsq(a_matrix, v_t, rcond=None)
         sigma_est = np.ma.sqrt(sol[0]).filled(sigma_min)
