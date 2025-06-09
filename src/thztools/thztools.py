@@ -1103,9 +1103,9 @@ def scaleshift(
     w = 2 * pi * f_scaled / dt
     phase = np.expand_dims(eta, axis=eta.ndim) * w
 
-    x_adjusted = irfft(
-        rfft(x) * np.exp(-1j * phase), n=n
-    ) * np.expand_dims(a, axis=a.ndim)
+    x_adjusted = irfft(rfft(x) * np.exp(-1j * phase), n=n) * np.expand_dims(
+        a, axis=a.ndim
+    )
 
     if x.ndim > 1 and axis != -1:
         x_adjusted = np.moveaxis(x_adjusted, -1, axis)
