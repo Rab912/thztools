@@ -265,7 +265,9 @@ def _assign_workers(workers: int | None) -> int:
     elif workers is not None and get_option("workers") is None:
         workers_out = workers
     elif workers is not None and get_option("workers") is not None:
-        if workers == get_option("workers") or (workers == -1 and get_option("workers") is None):
+        if workers == get_option("workers") or (
+            workers == -1 and get_option("workers") is None
+        ):
             workers_out = workers
         else:
             opt_workers = get_option("workers")
@@ -1123,9 +1125,9 @@ def scaleshift(
     w = 2 * pi * f_scaled / dt
     phase = np.expand_dims(eta, axis=eta.ndim) * w
 
-    x_adjusted = irfft(
-        rfft(x) * np.exp(-1j * phase), n=n
-    ) * np.expand_dims(a, axis=a.ndim)
+    x_adjusted = irfft(rfft(x) * np.exp(-1j * phase), n=n) * np.expand_dims(
+        a, axis=a.ndim
+    )
 
     if x.ndim > 1 and axis != -1:
         x_adjusted = np.moveaxis(x_adjusted, -1, axis)
@@ -1404,7 +1406,7 @@ def _jac_noisefit(
         scale_delta_mu=scale_delta_mu,
         scale_delta_a=scale_delta_a,
         scale_eta_on_dt=scale_eta_on_dt,
-        workers=workers
+        workers=workers,
     )
     ressq = common.ressq
     vtot = common.vtot
@@ -1440,11 +1442,13 @@ def _jac_noisefit(
     if fix_delta_mu:
         jac_delta_mu = []
     else:
-        p = rfft(vbeta * dvar * zeta - reswt, workers=workers) - 1j * vtau * w * rfft(
-            dvar * dzeta, workers=workers
-        )
+        p = rfft(
+            vbeta * dvar * zeta - reswt, workers=workers
+        ) - 1j * vtau * w * rfft(dvar * dzeta, workers=workers)
         jac_delta_mu = (
-            -np.sum((irfft(exp_iweta * p, n=n, workers=workers).T * a).T, axis=0)
+            -np.sum(
+                (irfft(exp_iweta * p, n=n, workers=workers).T * a).T, axis=0
+            )
             * scale_delta_mu
         )
 

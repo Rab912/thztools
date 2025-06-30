@@ -95,8 +95,11 @@ class TestOptions:
     @pytest.mark.parametrize("global_workers", [None, 1])
     @pytest.mark.parametrize("workers", [None, 1, -1])
     def test_assignment(
-        self, global_sampling_time: float | None, dt: float | None,
-        global_workers: int | None, workers: int | None
+        self,
+        global_sampling_time: float | None,
+        dt: float | None,
+        global_workers: int | None,
+        workers: int | None,
     ) -> None:
         set_option("sampling_time", global_sampling_time)
         if global_sampling_time is None and dt is None:
