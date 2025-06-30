@@ -92,14 +92,14 @@ class GlobalOptions:
         Global sampling time, normally in picoseconds. When set to None, the
         default, times and frequencies are treated as dimensionless quantities
         that are scaled by the (undetermined) sampling time.
-    workers : int, optional
+    workers : int | None, optional
         Maximum number of workers to use for parallel computation of FFTs. When
-        negative, this number wraps around from ```os.cpu_count()```. This is
-        set to -1 by default.
+        set to None, the default, this number is equal to ``os.cpu_count()``.
+        When negative, this number wraps around from ``os.cpu_count()``.
     """
 
     sampling_time: float | None = None
-    workers: int = -1
+    workers: int | None = None
 
 
 #: Instance of ``GlobalOptions`` that stores global options.
@@ -256,6 +256,26 @@ def _assign_sampling_time(dt: float | None) -> float:
             warnings.warn(msg, category=UserWarning, stacklevel=2)
             dt_out = dt
     return dt_out
+
+
+def _assign_workers(workers: int | None) -> int:
+    workers_out = -1
+    if workers is None and get_option("workers") is not None:
+        workers_out = get_option("workers")
+    elif workers is not None and get_option("workers") is None:
+        workers_out = workers
+    elif workers is not None and get_option("workers") is not None:
+        if workers == get_option("workers") or (workers == -1 and get_option("workers") is None):
+            workers_out = workers
+        else:
+            opt_workers = get_option("workers")
+            msg = (
+                f"Input workers {workers=} conflicts with "
+                f"{opt_workers=}, using {workers=}"
+            )
+            warnings.warn(msg, category=UserWarning, stacklevel=2)
+            workers_out = workers
+    return workers_out
 
 
 @dataclass
@@ -1168,6 +1188,7 @@ def _nll_common(
     scale_delta_mu: NDArray[np.float64],
     scale_delta_a: NDArray[np.float64],
     scale_eta_on_dt: NDArray[np.float64],
+    workers: int,
 ) -> CommonNLL:
     _, n = x.shape
 
@@ -1182,13 +1203,13 @@ def _nll_common(
     # Compute frequency vector and Fourier coefficients of mu
     f = rfftfreq(n)
     w = 2 * pi * f
-    mu_f = rfft(mu)
+    mu_f = rfft(mu, workers=workers)
 
     exp_iweta = np.exp(1j * np.outer(eta_on_dt, w))
     zeta_f = ((np.conj(exp_iweta) * mu_f).T * a).T
 
-    zeta = irfft(zeta_f, n=n)
-    dzeta = irfft(1j * w * zeta_f, n=n)
+    zeta = irfft(zeta_f, n=n, workers=workers)
+    dzeta = irfft(1j * w * zeta_f, n=n, workers=workers)
 
     res = x - zeta
     ressq = res**2
@@ -1220,6 +1241,7 @@ def _nll_noisefit(
     scale_delta_mu: NDArray[np.float64],
     scale_delta_a: NDArray[np.float64],
     scale_eta_on_dt: NDArray[np.float64],
+    workers: int,
 ) -> np.float64:
     r"""
     Compute the cost function for the time-domain noise model.
@@ -1255,6 +1277,9 @@ def _nll_noisefit(
         ``scale_sigma_tau_on_dt = scale_sigma_tau / dt``, where ``dt`` is the
         sampling time and ``scale_eta`` is the scale factor used in
         ``eta_scaled = eta / scale_eta``.
+    workers : int
+        The number of workers to use for parallel computation of FFTs. If
+        negative, this number wraps around from ``os.cpu_count()``.
 
     Returns
     -------
@@ -1276,6 +1301,7 @@ def _nll_noisefit(
         scale_delta_mu=scale_delta_mu,
         scale_delta_a=scale_delta_a,
         scale_eta_on_dt=scale_eta_on_dt,
+        workers=workers,
     )
     ressq = common.ressq
     vtot = common.vtot
@@ -1305,6 +1331,7 @@ def _jac_noisefit(
     scale_delta_mu: NDArray[np.float64],
     scale_delta_a: NDArray[np.float64],
     scale_eta_on_dt: NDArray[np.float64],
+    workers: int,
 ) -> NDArray[np.float64]:
     r"""
     Compute the Jacobian of ``_nll_noisefit`` w.r.t. the free parameters.
@@ -1344,6 +1371,9 @@ def _jac_noisefit(
         ``scale_sigma_tau_on_dt = scale_sigma_tau / dt``, where ``dt`` is the
         sampling time and ``scale_eta`` is the scale factor used in
         ``eta_scaled = eta / scale_eta``.
+    workers : int
+        The number of workers to use for parallel computation of FFTs. If
+        negative, this number wraps around from ``os.cpu_count()``.
 
     Returns
     -------
@@ -1374,6 +1404,7 @@ def _jac_noisefit(
         scale_delta_mu=scale_delta_mu,
         scale_delta_a=scale_delta_a,
         scale_eta_on_dt=scale_eta_on_dt,
+        workers=workers
     )
     ressq = common.ressq
     vtot = common.vtot
@@ -1409,11 +1440,11 @@ def _jac_noisefit(
     if fix_delta_mu:
         jac_delta_mu = []
     else:
-        p = rfft(vbeta * dvar * zeta - reswt) - 1j * vtau * w * rfft(
-            dvar * dzeta
+        p = rfft(vbeta * dvar * zeta - reswt, workers=workers) - 1j * vtau * w * rfft(
+            dvar * dzeta, workers=workers
         )
         jac_delta_mu = (
-            -np.sum((irfft(exp_iweta * p, n=n).T * a).T, axis=0)
+            -np.sum((irfft(exp_iweta * p, n=n, workers=workers).T * a).T, axis=0)
             * scale_delta_mu
         )
 
@@ -1428,7 +1459,7 @@ def _jac_noisefit(
     if fix_eta:
         jac_eta = []
     else:
-        ddzeta = irfft(-(w**2) * zeta_f, n=n)
+        ddzeta = irfft(-(w**2) * zeta_f, n=n, workers=workers)
         dnlldeta = -np.sum(
             dvar * (zeta * dzeta * valpha + dzeta * ddzeta * vtau)
             - reswt * dzeta,
@@ -1471,6 +1502,7 @@ def _hess_noisefit(
     scale_delta_mu: NDArray[np.float64],
     scale_delta_a: NDArray[np.float64],
     scale_eta_on_dt: NDArray[np.float64],
+    workers: int,
 ) -> NDArray[np.float64]:
     r"""
     Compute the Hessian of ``_nll_noisefit`` w.r.t. the free parameters.
@@ -1510,6 +1542,9 @@ def _hess_noisefit(
         ``scale_sigma_tau_on_dt = scale_sigma_tau / dt``, where ``dt`` is the
         sampling time and ``scale_eta`` is the scale factor used in
         ``eta_scaled = eta / scale_eta``.
+    workers : int
+        The number of workers to use for parallel computation of FFTs. If
+        negative, this number wraps around from ``os.cpu_count()``.
 
     Returns
     -------
@@ -1540,6 +1575,7 @@ def _hess_noisefit(
         scale_delta_mu=scale_delta_mu,
         scale_delta_a=scale_delta_a,
         scale_eta_on_dt=scale_eta_on_dt,
+        workers=workers,
     )
     # Compute residuals and their squares for subsequent computations
     ressq = common.ressq
@@ -1550,8 +1586,8 @@ def _hess_noisefit(
     a = common.a
     exp_iweta = common.exp_iweta
 
-    ddzeta = irfft(-(w**2) * zeta_f, n=n)
-    dddzeta = irfft(-1j * (w**3) * zeta_f, n=n)
+    ddzeta = irfft(-(w**2) * zeta_f, n=n, workers=workers)
+    dddzeta = irfft(-1j * (w**3) * zeta_f, n=n, workers=workers)
 
     res = x - zeta
     dvar = (vtot - ressq) / vtot**2
@@ -1560,8 +1596,9 @@ def _hess_noisefit(
     dzeta_dmu = irfft(
         a[:, np.newaxis, np.newaxis]
         * np.conj(exp_iweta)[:, np.newaxis, :]
-        * rfft(np.eye(n))[np.newaxis, :, :],
+        * rfft(np.eye(n), workers=workers)[np.newaxis, :, :],
         n=n,
+        workers=workers,
     )
 
     ddzeta_dmu = irfft(
@@ -1569,16 +1606,18 @@ def _hess_noisefit(
         * 1j
         * w
         * np.conj(exp_iweta)[:, np.newaxis, :]
-        * rfft(np.eye(n))[np.newaxis, :, :],
+        * rfft(np.eye(n), workers=workers)[np.newaxis, :, :],
         n=n,
+        workers=workers,
     )
 
     dddzeta_dmu = irfft(
         a[:, np.newaxis, np.newaxis]
         * -(w**2)
         * np.conj(exp_iweta)[:, np.newaxis, :]
-        * rfft(np.eye(n))[np.newaxis, :, :],
+        * rfft(np.eye(n), workers=workers)[np.newaxis, :, :],
         n=n,
+        workers=workers,
     )
 
     # Hessian block for (logv, logv)
@@ -2012,6 +2051,7 @@ def noisefit(
     scale_delta_a: ArrayLike | None = None,
     scale_eta: ArrayLike | None = None,
     min_options: dict[str, Any] | None = None,
+    workers: int | None = None,
 ) -> NoiseResult:
     r"""
     Estimate noise model from a set of nominally identical waveforms.
@@ -2095,6 +2135,11 @@ def noisefit(
         optimize.minimize-bfgs.html#optimize-minimize-bfgs>`_
         method for details. By default, ``gtol=1e-5 * x.size``. The options
         ``eps`` and ``finite_diff_rel_step`` are not used.
+    workers : int or None, optional
+        The number of workers to use for parallel computation of FFTs. Default
+        is None, which sets the number of workers to ``os.cpu_count()``. If
+        both ``workers`` and ``thztools.options.workers`` are ``None``, the
+        number of workers is set to ``os.cpu_count()``.
 
     Raises
     ------
@@ -2201,6 +2246,7 @@ def noisefit(
     """
     x = np.asarray(x, dtype=np.float64)
     dt = _assign_sampling_time(dt)
+    workers = _assign_workers(workers)
 
     parsed = _parse_noisefit_input(
         x,
@@ -2223,6 +2269,7 @@ def noisefit(
         scale_delta_mu=scale_delta_mu,
         scale_delta_a=scale_delta_a,
         scale_eta=scale_eta,
+        workers=workers,
     )
 
     objective, jac, x0, input_parsed = parsed
@@ -2262,6 +2309,7 @@ def _parse_noisefit_input(
     scale_delta_mu: ArrayLike | None,
     scale_delta_a: ArrayLike | None,
     scale_eta: ArrayLike | None,
+    workers: int,
 ) -> tuple[
     Callable[[NDArray[np.float64]], np.float64],
     Callable[[NDArray[np.float64]], NDArray[np.float64]],
@@ -2303,9 +2351,9 @@ def _parse_noisefit_input(
     # estimate all noise parameters with a linear least-squares fit
     # to the time-dependent variance
     if None in [sigma_alpha0, sigma_beta0, sigma_tau0]:
-        mu0_f = rfft(mu0, workers=get_option("workers"))
+        mu0_f = rfft(mu0, workers=workers)
         w = 2 * pi * rfftfreq(n, dt)
-        dmu0_dt = irfft(1j * w * mu0_f, n=n, workers=get_option("workers"))
+        dmu0_dt = irfft(1j * w * mu0_f, n=n, workers=workers)
         a_matrix = np.stack([np.ones(n), mu0**2, dmu0_dt**2], axis=1)
         sol = np.linalg.lstsq(a_matrix, v_t, rcond=None)
         sigma_est = np.ma.sqrt(sol[0]).filled(sigma_min)
@@ -2450,6 +2498,7 @@ def _parse_noisefit_input(
             scale_delta_mu=scale_delta_mu,
             scale_delta_a=scale_delta_a,
             scale_eta_on_dt=scale_eta / dt,  # Scale in units of dt
+            workers=workers,
         )
 
     # Bundle free parameters together into objective function
@@ -2502,6 +2551,7 @@ def _parse_noisefit_input(
             scale_delta_mu=scale_delta_mu,
             scale_delta_a=scale_delta_a,
             scale_eta_on_dt=scale_eta / dt,  # Scale in units of dt
+            workers=workers,
         )
 
     def hess(_p: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -2553,6 +2603,7 @@ def _parse_noisefit_input(
             scale_delta_mu=scale_delta_mu,
             scale_delta_a=scale_delta_a,
             scale_eta_on_dt=scale_eta / dt,  # Scale in units of dt
+            workers=workers,
         )
 
     input_parsed = {
