@@ -442,7 +442,7 @@ class TestJacNoiseFit:
     delta_a = np.zeros(m - 1)
     eta = np.zeros(m - 1)
     desired_nll = x.size * np.log(2 * pi) / 2
-    workers = None
+    workers = -1
 
     @pytest.mark.parametrize(
         "fix_logv_alpha, desired_gradnll_logv_alpha",
@@ -601,7 +601,7 @@ class TestHessNoiseFit:
     scale_delta_mu = np.ones_like(delta_mu)
     scale_delta_a = np.ones_like(delta_a)
     scale_eta = np.ones_like(eta)
-    workers = None
+    workers = -1
 
     def test_hess_logv_logv(self) -> None:
         desired_hess_logv_logv = np.array(
@@ -986,7 +986,7 @@ class TestNoiseFit:
     eta = np.zeros(m)
     scale_delta_a = 1e-2 * np.ones(m - 1)
     scale_eta = 1e-3 * np.ones(m - 1) / dt
-    workers = None
+    workers = -1
 
     @pytest.mark.parametrize(
         "x, mu0, a0, eta0, fix_sigma_alpha, fix_sigma_beta, fix_sigma_tau, "
